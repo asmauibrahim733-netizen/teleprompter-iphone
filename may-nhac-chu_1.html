@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Máy Nhắc Chữ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nhắc Chữ">
+<meta name="theme-color" content="#0b0c0f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c0f;
+    --ink:#f4f5f7;
+    --ink-dim:#b7bcc6;
+    --accent:#ffb648;
+    --rec:#ff4d4d;
+    --panel:rgba(18,19,23,0.86);
+    --panel-line:rgba(255,255,255,0.14);
+    --control:rgba(255,255,255,0.10);
+    --control-active:rgba(255,182,72,0.28);
+    color-scheme: dark;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  [hidden]{ display:none !important; }
+  html,body{
+    height:100%; margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; overflow:hidden; background:#000; }
+  #cam{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    background:#000;
+  }
+  #cam.mirror{ transform:scaleX(-1); }
+  #scrim{
+    position:absolute; inset:0;
+    background:linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 30%, rgba(0,0,0,0.15) 70%, rgba(0,0,0,0.6) 100%);
+    pointer-events:none;
+  }
+  #promptWrap{
+    position:absolute; left:0; right:0; top:0; bottom:0;
+    overflow:hidden; pointer-events:none;
+    display:flex; justify-content:center;
+    padding: calc(env(safe-area-inset-top,0px) + 14px) 22px 0 22px;
+  }
+  #promptText{
+    position:absolute; left:22px; right:22px; top:100%;
+    font-weight:700; line-height:1.35; text-align:center;
+    color:#fff; text-shadow:0 2px 10px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.6);
+    white-space:pre-wrap; word-wrap:break-word;
+    will-change: transform;
+  }
+  #promptText.mirror{ transform:scaleX(-1); }
+
+  #centerLine{
+    position:absolute; left:0; right:0; top:38%;
+    border-top:1px dashed rgba(255,182,72,0.55);
+    pointer-events:none;
+  }
+
+  #topBar{
+    position:absolute; left:0; right:0; top:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: calc(env(safe-area-inset-top,0px) + 10px) 14px 8px 14px;
+    z-index:5;
+  }
+  #recBadge{
+    display:none; align-items:center; gap:7px;
+    background:rgba(0,0,0,0.5); border-radius:999px; padding:6px 12px 6px 8px;
+    font-size:13px; font-weight:600; letter-spacing:.02em;
+  }
+  #recBadge.on{ display:flex; }
+  #recDot{
+    width:9px; height:9px; border-radius:50%; background:var(--rec);
+    animation:blink 1s step-start infinite;
+  }
+  @keyframes blink{ 50%{ opacity:.25; } }
+  #timer{ font-variant-numeric:tabular-nums; }
+
+  #hideBtn{
+    background:rgba(0,0,0,0.45); color:var(--ink);
+    border:1px solid var(--panel-line); border-radius:999px;
+    padding:8px 14px; font-size:13px; font-weight:600;
+  }
+
+  #dock{
+    position:absolute; left:0; right:0; bottom:0; z-index:6;
+    background:var(--panel); backdrop-filter:blur(14px);
+    border-top:1px solid var(--panel-line);
+    padding: 12px 14px calc(env(safe-area-inset-bottom,0px) + 12px) 14px;
+    transition:transform .28s ease;
+  }
+  #dock.hidden{ transform:translateY(100%); }
+
+  .row{ display:flex; align-items:center; gap:10px; }
+  .row + .row{ margin-top:10px; }
+  .sliderRow{ flex:1; display:flex; align-items:center; gap:10px; }
+  .sliderRow label{ font-size:12px; color:var(--ink-dim); width:64px; flex-shrink:0; }
+  input[type=range]{ flex:1; accent-color:var(--accent); height:22px; }
+
+  .btnRow{ display:flex; gap:8px; flex-wrap:wrap; }
+  button{
+    font-family:inherit; border:none; border-radius:12px;
+    background:var(--control); color:var(--ink);
+    padding:11px 12px; font-size:13px; font-weight:600;
+    display:flex; align-items:center; gap:6px; justify-content:center;
+    flex:1; min-width:0;
+  }
+  button.active{ background:var(--control-active); color:var(--accent); }
+  button.wide{ flex:1.4; }
+  #recBtn{ background:var(--rec); color:#fff; flex:1; }
+  #recBtn.recording{ background:#7a1f1f; }
+  #playBtn{ background:var(--accent); color:#1a1200; flex:1; }
+
+  #showDockBtn{
+    position:absolute; right:14px; bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    z-index:6; display:none;
+    background:rgba(0,0,0,0.5); border:1px solid var(--panel-line);
+    color:var(--ink); border-radius:999px; padding:10px 16px; font-size:13px; font-weight:600;
+  }
+  #showDockBtn.show{ display:block; }
+
+  #modalBg{
+    position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:20;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  #modalBg.show{ display:flex; }
+  #modal{
+    width:100%; max-width:640px; background:#15171c; border-radius:18px 18px 0 0;
+    padding:16px 16px calc(env(safe-area-inset-bottom,0px) + 16px) 16px;
+    max-height:82vh; display:flex; flex-direction:column; gap:10px;
+    border-top:1px solid var(--panel-line);
+  }
+  #modal h2{ margin:2px 0 0 0; font-size:16px; }
+  #scriptArea{
+    -webkit-user-select:text; user-select:text;
+    flex:1; min-height:38vh; resize:none;
+    background:#0d0e12; color:var(--ink); border:1px solid var(--panel-line);
+    border-radius:12px; padding:12px; font-size:16px; line-height:1.5;
+    font-family:inherit;
+  }
+  #modal .row{ gap:8px; }
+  #modal button{ padding:12px; }
+  #closeErr{ margin-left:auto; }
+
+  #err{
+    position:fixed; inset:0; z-index:30; display:none;
+    background:var(--bg); color:var(--ink); padding:24px;
+    padding-top:calc(env(safe-area-inset-top,0px) + 24px);
+    flex-direction:column; gap:14px; text-align:left;
+  }
+  #err.show{ display:flex; }
+  #err h1{ font-size:20px; margin:0; }
+  #err p{ color:var(--ink-dim); line-height:1.55; font-size:14.5px; -webkit-user-select:text; user-select:text; }
+  #err code{ background:#1c1e24; padding:2px 6px; border-radius:6px; font-size:13px; }
+  #err button{ align-self:flex-start; padding:12px 18px; background:var(--accent); color:#1a1200; }
+
+  #dl{
+    position:fixed; left:14px; right:14px; z-index:15;
+    top: calc(env(safe-area-inset-top,0px) + 60px);
+    background:#15171c; border:1px solid var(--panel-line); border-radius:14px;
+    padding:14px; display:none; gap:10px; flex-direction:column;
+  }
+  #dl.show{ display:flex; }
+  #dl a{
+    display:block; text-align:center; background:var(--accent); color:#1a1200;
+    padding:12px; border-radius:10px; font-weight:700; text-decoration:none; font-size:14px;
+  }
+  #dl p{ margin:0; font-size:13px; color:var(--ink-dim); }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <div id="scrim"></div>
+  <div id="centerLine"></div>
+  <div id="promptWrap"><div id="promptText"></div></div>
+
+  <div id="topBar">
+    <div id="recBadge"><div id="recDot"></div><span id="timer">00:00</span></div>
+    <button id="hideBtn">Ẩn bảng điều khiển</button>
+  </div>
+
+  <button id="showDockBtn">Hiện điều khiển</button>
+
+  <div id="dl">
+    <p>Đã quay xong. Video được lưu tạm trong trình duyệt — bấm để tải về Ảnh/Tệp trước khi rời trang.</p>
+    <a id="dlLink" download="nhac-chu.mp4">Tải video xuống</a>
+  </div>
+
+  <div id="dock">
+    <div class="row">
+      <div class="sliderRow">
+        <label>Tốc độ</label>
+        <input id="speed" type="range" min="10" max="140" value="45">
+      </div>
+      <div class="sliderRow">
+        <label>Cỡ chữ</label>
+        <input id="fontSize" type="range" min="20" max="72" value="40">
+      </div>
+    </div>
+    <div class="row btnRow">
+      <button id="playBtn">▶ Chạy chữ</button>
+      <button id="resetBtn">⟲ Về đầu</button>
+    </div>
+    <div class="row btnRow">
+      <button id="recBtn">⏺ Quay hình</button>
+      <button id="finishRecBtn" hidden>✓ Xong, lưu video</button>
+    </div>
+    <div class="row btnRow">
+      <button id="editBtn">✎ Soạn kịch bản</button>
+      <button id="mirrorBtn">Lật chữ</button>
+      <button id="flipCamBtn">Đổi camera</button>
+    </div>
+  </div>
+</div>
+
+<div id="modalBg">
+  <div id="modal">
+    <h2>Kịch bản</h2>
+    <textarea id="scriptArea" placeholder="Dán hoặc gõ nội dung cần đọc ở đây..."></textarea>
+    <div class="row">
+      <button id="saveScriptBtn" class="wide">Lưu</button>
+      <button id="cancelScriptBtn">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<div id="err">
+  <h1>Không mở được camera</h1>
+  <p id="errMsg"></p>
+  <p>Lưu ý: camera trên iPhone Safari chỉ hoạt động khi trang được mở qua <code>https://</code> hoặc <code>http://localhost</code>. Nếu mở trực tiếp file này (file://) mà không xin quyền camera, hãy đưa file lên một chỗ lưu trữ có HTTPS (ví dụ GitHub Pages) rồi mở link đó trên Safari.</p>
+  <button id="retryBtn">Thử lại</button>
+</div>
+
+<script>
+(function(){
+  const cam = document.getElementById('cam');
+  const promptText = document.getElementById('promptText');
+  const promptWrap = document.getElementById('promptWrap');
+  const speedInput = document.getElementById('speed');
+  const fontInput = document.getElementById('fontSize');
+  const playBtn = document.getElementById('playBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const recBtn = document.getElementById('recBtn');
+  const finishRecBtn = document.getElementById('finishRecBtn');
+  const editBtn = document.getElementById('editBtn');
+  const mirrorBtn = document.getElementById('mirrorBtn');
+  const flipCamBtn = document.getElementById('flipCamBtn');
+  const hideBtn = document.getElementById('hideBtn');
+  const showDockBtn = document.getElementById('showDockBtn');
+  const dock = document.getElementById('dock');
+  const modalBg = document.getElementById('modalBg');
+  const scriptArea = document.getElementById('scriptArea');
+  const saveScriptBtn = document.getElementById('saveScriptBtn');
+  const cancelScriptBtn = document.getElementById('cancelScriptBtn');
+  const errBox = document.getElementById('err');
+  const errMsg = document.getElementById('errMsg');
+  const retryBtn = document.getElementById('retryBtn');
+  const recBadge = document.getElementById('recBadge');
+  const timerEl = document.getElementById('timer');
+  const dlBox = document.getElementById('dl');
+  const dlLink = document.getElementById('dlLink');
+
+  const DEFAULT_SCRIPT = "Dán kịch bản của bạn vào đây.\n\nBấm nút \"Soạn kịch bản\" bên dưới để sửa nội dung.\n\nDùng thanh trượt Tốc độ và Cỡ chữ để chỉnh cho vừa mắt, rồi bấm \"Chạy chữ\" và bắt đầu quay.";
+
+  let facingMode = 'user';
+  let stream = null;
+  let playing = false;
+  let mirrored = false;
+  let posY = 0; // px scrolled (0 = start, at bottom)
+  let lastFrameTime = null;
+  let rafId = null;
+
+  let recorder = null;
+  let chunks = [];
+  let recTimerId = null;
+  let recState = 'idle'; // 'idle' | 'recording' | 'paused'
+  let segmentStart = 0;   // timestamp when current running segment began
+  let elapsedBeforePause = 0; // ms accumulated from earlier segments
+  const supportsPause = !!(window.MediaRecorder && MediaRecorder.prototype && typeof MediaRecorder.prototype.pause === 'function');
+
+  function loadScript(){
+    try{
+      return localStorage.getItem('tp_script') || DEFAULT_SCRIPT;
+    }catch(e){ return DEFAULT_SCRIPT; }
+  }
+  function saveScript(text){
+    try{ localStorage.setItem('tp_script', text); }catch(e){}
+  }
+  function loadNum(key, fallback){
+    try{
+      const v = parseInt(localStorage.getItem(key), 10);
+      return isNaN(v) ? fallback : v;
+    }catch(e){ return fallback; }
+  }
+
+  promptText.textContent = loadScript();
+  speedInput.value = loadNum('tp_speed', 45);
+  fontInput.value = loadNum('tp_font', 40);
+  applyFontSize();
+
+  function applyFontSize(){
+    promptText.style.fontSize = fontInput.value + 'px';
+    try{ localStorage.setItem('tp_font', fontInput.value); }catch(e){}
+  }
+  fontInput.addEventListener('input', applyFontSize);
+  speedInput.addEventListener('input', ()=>{ try{ localStorage.setItem('tp_speed', speedInput.value); }catch(e){} });
+
+  function resetScroll(){
+    posY = 0;
+    lastFrameTime = null;
+    promptText.style.transform = mirrored ? 'scaleX(-1) translateY(0px)' : 'translateY(0px)';
+  }
+
+  function tick(t){
+    if(!playing) return;
+    if(lastFrameTime == null) lastFrameTime = t;
+    const dt = (t - lastFrameTime) / 1000;
+    lastFrameTime = t;
+    const speed = parseFloat(speedInput.value); // px per second
+    posY += speed * dt;
+    const maxScroll = promptText.scrollHeight + promptWrap.clientHeight;
+    if(posY > maxScroll) posY = maxScroll;
+    const y = -posY;
+    promptText.style.transform = mirrored ? ('scaleX(-1) translateY(' + y + 'px)') : ('translateY(' + y + 'px)');
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function play(){
+    playing = true;
+    playBtn.textContent = '⏸ Tạm dừng';
+    playBtn.classList.add('active');
+    lastFrameTime = null;
+    rafId = requestAnimationFrame(tick);
+  }
+  function pause(){
+    playing = false;
+    playBtn.textContent = '▶ Chạy chữ';
+    playBtn.classList.remove('active');
+    if(rafId) cancelAnimationFrame(rafId);
+  }
+  playBtn.addEventListener('click', ()=> playing ? pause() : play());
+  resetBtn.addEventListener('click', ()=>{ pause(); resetScroll(); });
+
+  mirrorBtn.addEventListener('click', ()=>{
+    mirrored = !mirrored;
+    mirrorBtn.classList.toggle('active', mirrored);
+    const y = -posY;
+    promptText.style.transform = mirrored ? ('scaleX(-1) translateY(' + y + 'px)') : ('translateY(' + y + 'px)');
+  });
+
+  hideBtn.addEventListener('click', ()=>{
+    dock.classList.add('hidden');
+    showDockBtn.classList.add('show');
+  });
+  showDockBtn.addEventListener('click', ()=>{
+    dock.classList.remove('hidden');
+    showDockBtn.classList.remove('show');
+  });
+
+  editBtn.addEventListener('click', ()=>{
+    scriptArea.value = promptText.textContent;
+    modalBg.classList.add('show');
+  });
+  cancelScriptBtn.addEventListener('click', ()=> modalBg.classList.remove('show'));
+  saveScriptBtn.addEventListener('click', ()=>{
+    promptText.textContent = scriptArea.value;
+    saveScript(scriptArea.value);
+    modalBg.classList.remove('show');
+    pause();
+    resetScroll();
+  });
+
+  function showError(msg){
+    errMsg.textContent = msg;
+    errBox.classList.add('show');
+  }
+  retryBtn.addEventListener('click', ()=>{ errBox.classList.remove('show'); startCamera(); });
+
+  async function startCamera(){
+    try{
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode: facingMode, width:{ideal:1280}, height:{ideal:720} },
+        audio:true
+      });
+      cam.srcObject = stream;
+      cam.classList.toggle('mirror', facingMode === 'user');
+      errBox.classList.remove('show');
+    }catch(e){
+      let msg = 'Trình duyệt báo lỗi: ' + (e && e.message ? e.message : e);
+      if(location.protocol === 'file:'){
+        msg += ' (Trang đang mở bằng file:// — Safari có thể chặn quyền camera ở chế độ này.)';
+      }
+      showError(msg);
+    }
+  }
+  flipCamBtn.addEventListener('click', ()=>{
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    startCamera();
+  });
+
+  function pickMimeType(){
+    const options = ['video/mp4','video/webm;codecs=h264','video/webm;codecs=vp9','video/webm'];
+    for(const o of options){
+      if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(o)) return o;
+    }
+    return '';
+  }
+
+  function fmtTime(sec){
+    const m = Math.floor(sec/60).toString().padStart(2,'0');
+    const s = Math.floor(sec%60).toString().padStart(2,'0');
+    return m + ':' + s;
+  }
+
+  function updateTimerDisplay(){
+    const running = recState === 'recording';
+    const now = running ? Date.now() - segmentStart + elapsedBeforePause : elapsedBeforePause;
+    timerEl.textContent = fmtTime(now/1000);
+  }
+
+  function beginRecording(){
+    if(!stream){ showError('Chưa có tín hiệu camera.'); return; }
+    if(!window.MediaRecorder){ showError('Trình duyệt này không hỗ trợ quay video (MediaRecorder).'); return; }
+    chunks = [];
+    elapsedBeforePause = 0;
+    const mimeType = pickMimeType();
+    try{
+      recorder = mimeType ? new MediaRecorder(stream, {mimeType}) : new MediaRecorder(stream);
+    }catch(e){
+      showError('Không khởi tạo được bộ ghi hình: ' + e.message);
+      return;
+    }
+    recorder.ondataavailable = (ev)=>{ if(ev.data && ev.data.size>0) chunks.push(ev.data); };
+    recorder.onstop = ()=>{
+      const blob = new Blob(chunks, {type: recorder.mimeType || 'video/mp4'});
+      const url = URL.createObjectURL(blob);
+      const ext = (recorder.mimeType||'').includes('mp4') ? 'mp4' : 'webm';
+      dlLink.href = url;
+      dlLink.download = 'nhac-chu-' + Date.now() + '.' + ext;
+      dlBox.classList.add('show');
+    };
+    recorder.start();
+    segmentStart = Date.now();
+    recState = 'recording';
+    recBadge.classList.add('on');
+    if(recTimerId) clearInterval(recTimerId);
+    recTimerId = setInterval(updateTimerDisplay, 250);
+    recBtn.textContent = supportsPause ? '⏸ Tạm dừng' : '⏹ Dừng quay';
+    recBtn.classList.add('recording');
+    finishRecBtn.hidden = !supportsPause; // no pause support -> tapping recBtn again just stops, no separate finish button needed
+    dlBox.classList.remove('show');
+  }
+
+  function pauseRecording(){
+    try{ recorder.pause(); }catch(e){ return; }
+    elapsedBeforePause += Date.now() - segmentStart;
+    recState = 'paused';
+    updateTimerDisplay();
+    recBtn.textContent = '⏺ Tiếp tục quay';
+  }
+
+  function resumeRecording(){
+    try{ recorder.resume(); }catch(e){ return; }
+    segmentStart = Date.now();
+    recState = 'recording';
+    recBtn.textContent = '⏸ Tạm dừng';
+  }
+
+  function finishRecording(){
+    if(recorder && recorder.state !== 'inactive') recorder.stop();
+    recState = 'idle';
+    recBadge.classList.remove('on');
+    if(recTimerId) clearInterval(recTimerId);
+    recBtn.textContent = '⏺ Quay hình';
+    recBtn.classList.remove('recording');
+    finishRecBtn.hidden = true;
+  }
+
+  recBtn.addEventListener('click', ()=>{
+    if(recState === 'idle') beginRecording();
+    else if(recState === 'recording'){
+      if(supportsPause) pauseRecording(); else finishRecording();
+    }
+    else if(recState === 'paused') resumeRecording();
+  });
+  finishRecBtn.addEventListener('click', finishRecording);
+
+  window.addEventListener('resize', ()=>{
+    const y = -posY;
+    promptText.style.transform = mirrored ? ('scaleX(-1) translateY(' + y + 'px)') : ('translateY(' + y + 'px)');
+  });
+
+  resetScroll();
+  startCamera();
+})();
+</script>
+</body>
+</html>
